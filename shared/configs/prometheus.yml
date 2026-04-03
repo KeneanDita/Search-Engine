@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "go-api"
+    static_configs:
+      - targets: ["go-api:8080"]
+    metrics_path: /metrics
+
+  - job_name: "go-indexer"
+    static_configs:
+      - targets: ["go-indexer:8081"]
+    metrics_path: /metrics
+
+  - job_name: "python-crawler"
+    static_configs:
+      - targets: ["python-crawler:8000"]
+    metrics_path: /metrics
+
+  - job_name: "python-nlp"
+    static_configs:
+      - targets: ["python-nlp:8001"]
+    metrics_path: /metrics
+
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:6379"]
+
+  - job_name: "opensearch"
+    static_configs:
+      - targets: ["opensearch:9200"]
+    metrics_path: /_prometheus/metrics
