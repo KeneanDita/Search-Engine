@@ -27,11 +27,11 @@ const (
 
 // SearchHandler holds search handler dependencies.
 type SearchHandler struct {
-	osAddr    string
-	nlpURL    string
-	cache     *cache.RedisCache
-	embedder  *ranking.EmbeddingClient
-	logger    *zap.Logger
+	osAddr     string
+	nlpURL     string
+	cache      *cache.RedisCache
+	embedder   *ranking.EmbeddingClient
+	logger     *zap.Logger
 	httpClient *http.Client
 }
 
@@ -42,11 +42,11 @@ func NewSearchHandler(
 	logger *zap.Logger,
 ) *SearchHandler {
 	return &SearchHandler{
-		osAddr:    osAddr,
-		nlpURL:    nlpURL,
-		cache:     cache,
-		embedder:  ranking.NewEmbeddingClient(nlpURL),
-		logger:    logger,
+		osAddr:     osAddr,
+		nlpURL:     nlpURL,
+		cache:      cache,
+		embedder:   ranking.NewEmbeddingClient(nlpURL),
+		logger:     logger,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
@@ -120,18 +120,22 @@ func (h *SearchHandler) Search(c *fiber.Ctx) error {
 
 	case "hybrid":
 		var kErr, sErr error
+		var kh, sh []models.SearchHit
 		doneCh := make(chan struct{}, 2)
 
 		go func() {
-			keywordHits, _, kErr = h.keywordSearch(ctx, req)
+			kh, _, kErr = h.keywordSearch(ctx, req)
 			doneCh <- struct{}{}
 		}()
 		go func() {
-			semanticHits, _, sErr = h.semanticSearch(ctx, req)
+			sh, _, sErr = h.semanticSearch(ctx, req)
 			doneCh <- struct{}{}
 		}()
 		<-doneCh
 		<-doneCh
+
+		keywordHits = kh
+		semanticHits = sh
 
 		if kErr != nil {
 			h.logger.Warn("keyword search error in hybrid", zap.Error(kErr))
@@ -243,9 +247,9 @@ func (h *SearchHandler) buildKeywordQuery(q, source, lang, dateFrom, dateTo stri
 	must := []interface{}{
 		map[string]interface{}{
 			"multi_match": map[string]interface{}{
-				"query":  q,
-				"fields": []string{"title^3", "content^1", "keyphrases^2"},
-				"type":   "best_fields",
+				"query":     q,
+				"fields":    []string{"title^3", "content^1", "keyphrases^2"},
+				"type":      "best_fields",
 				"fuzziness": "AUTO",
 			},
 		},
