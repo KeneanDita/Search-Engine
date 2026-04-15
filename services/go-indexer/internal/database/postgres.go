@@ -62,16 +62,6 @@ func (p *PGPool) migrate(ctx context.Context) error {
 
 // UpsertDocument inserts or updates a document's metadata in Postgres.
 func (p *PGPool) UpsertDocument(ctx context.Context, doc interface{}) error {
-	type pgDoc struct {
-		ID            string
-		URL           string
-		Title         string
-		Content       string
-		WordCount     int
-		Language      string
-		Source        string
-		PublishedDate *string
-	}
 	// Handled via interface via type assertion in indexer
 	return nil
 }
