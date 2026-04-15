@@ -1,4 +1,5 @@
 """Python NLP Service — FastAPI entrypoint."""
+
 from __future__ import annotations
 
 import asyncio
@@ -52,25 +53,25 @@ embedder = Embedder()
 ner = NERExtractor()
 
 _executor = ThreadPoolExecutor(max_workers=4)
-_worker_task: asyncio.Task | None = None
+_worker_tasks: list[asyncio.Task] = []
 _redis: aioredis.Redis | None = None
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _redis, _worker_task
+    global _redis, _worker_tasks
     _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     # Pre-warm the embedding model
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_executor, embedder.embed, "warmup")
-    _worker_task = asyncio.create_task(_queue_worker())
-    logger.info("nlp_service_started")
+    _worker_tasks = [asyncio.create_task(_queue_worker()) for _ in range(4)]
+    logger.info("nlp_service_started", workers=4)
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    if _worker_task:
-        _worker_task.cancel()
+    for task in _worker_tasks:
+        task.cancel()
     if _redis:
         await _redis.aclose()
 
@@ -123,6 +124,7 @@ def _process_document_sync(raw: dict[str, Any]) -> dict[str, Any]:
     EMBED_DURATION.observe(time.perf_counter() - embed_start)
 
     import hashlib
+
     doc_id = hashlib.sha256(url.encode()).hexdigest()[:16]
 
     DOCS_PROCESSED.inc()
@@ -142,8 +144,17 @@ def _process_document_sync(raw: dict[str, Any]) -> dict[str, Any]:
         "source": raw.get("source", ""),
         "published_date": raw.get("published_date"),
         "metadata": {
-            k: v for k, v in raw.items()
-            if k not in ("content", "raw_content", "url", "title", "source", "published_date")
+            k: v
+            for k, v in raw.items()
+            if k
+            not in (
+                "content",
+                "raw_content",
+                "url",
+                "title",
+                "source",
+                "published_date",
+            )
         },
     }
 
@@ -160,7 +171,9 @@ async def _queue_worker() -> None:
                 continue
             _, payload = item
             raw_doc = json.loads(payload)
-            processed = await loop.run_in_executor(_executor, _process_document_sync, raw_doc)
+            processed = await loop.run_in_executor(
+                _executor, _process_document_sync, raw_doc
+            )
             await _redis.rpush(PROCESSED_QUEUE, json.dumps(processed))  # type: ignore[union-attr]
             logger.debug("doc_processed", doc_id=processed["id"], url=processed["url"])
         except asyncio.CancelledError:
@@ -206,26 +219,31 @@ async def process_documents(req: ProcessRequest) -> dict[str, Any]:
     for i, (raw_doc, text) in enumerate(raws):
         full_text = texts_for_batch[i]
         tokens = await loop.run_in_executor(_executor, tokenizer.tokenize, full_text)
-        keyphrases = await loop.run_in_executor(_executor, tokenizer.keyphrases, full_text)
+        keyphrases = await loop.run_in_executor(
+            _executor, tokenizer.keyphrases, full_text
+        )
         entities = await loop.run_in_executor(_executor, ner.extract, full_text)
 
         import hashlib
+
         doc_id = hashlib.sha256(raw_doc.get("url", str(i)).encode()).hexdigest()[:16]
 
-        results.append({
-            "id": doc_id,
-            "url": raw_doc.get("url", ""),
-            "title": raw_doc.get("title", ""),
-            "content": text,
-            "tokens": tokens[:500],
-            "keyphrases": keyphrases,
-            "entities": entities,
-            "embedding": embeddings[i],
-            "word_count": len(tokens),
-            "source": raw_doc.get("source", ""),
-            "published_date": raw_doc.get("published_date"),
-            "metadata": {},
-        })
+        results.append(
+            {
+                "id": doc_id,
+                "url": raw_doc.get("url", ""),
+                "title": raw_doc.get("title", ""),
+                "content": text,
+                "tokens": tokens[:500],
+                "keyphrases": keyphrases,
+                "entities": entities,
+                "embedding": embeddings[i],
+                "word_count": len(tokens),
+                "source": raw_doc.get("source", ""),
+                "published_date": raw_doc.get("published_date"),
+                "metadata": {},
+            }
+        )
 
     return {"processed": len(results), "documents": results}
 
