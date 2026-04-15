@@ -89,6 +89,9 @@ func FuseResults(
 	}
 
 	sort.Slice(items, func(i, j int) bool {
+		if items[i].rrf == items[j].rrf {
+			return items[i].entry.hit.ID < items[j].entry.hit.ID
+		}
 		return items[i].rrf > items[j].rrf
 	})
 
